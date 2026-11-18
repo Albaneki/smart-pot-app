@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Βασιλικάκος 🌿 Smart Pot</title>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Βασιλικάκος 🌿">
+    <meta name="theme-color" content="#E8F5E9">
+    <link rel="apple-touch-icon" href="https://em-content.zobj.net/source/apple/354/potted-plant_1f984.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #F4F8F5; }</style>
+</head>
+<body class="text-gray-800 p-4 md:p-8 min-h-screen">
+    <div class="max-w-md mx-auto md:max-w-4xl space-y-5">
+        <div class="flex justify-between items-center bg-white/80 backdrop-blur-md p-4 rounded-3xl shadow-sm border border-emerald-100">
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-2xl shadow-inner">🪴</div>
+                <div>
+                    <h1 class="text-xl font-extrabold text-emerald-950">Βασιλικάκος 🌿</h1>
+                    <p id="last-update" class="text-xs text-emerald-600 font-semibold">Live • --:--:--</p>
+                </div>
+            </div>
+            <button onclick="triggerAI()" id="btn-trigger" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold tracking-wide transition flex items-center gap-1.5 shadow-sm">🤖 Αξιολόγηση</button>
+        </div>
+        <div id="mood-card" class="bg-gradient-to-br from-emerald-100 via-teal-50 to-emerald-200 p-6 rounded-3xl shadow-sm border border-emerald-200/60 text-center relative overflow-hidden">
+            <div class="text-7xl my-2 animate-bounce transition-all duration-300" id="plant-avatar">😊</div>
+            <h2 id="plant-mood-title" class="text-2xl font-extrabold text-emerald-950 mt-1">Νιώθω υπέροχα!</h2>
+            <p id="ai-recommendation" class="text-sm text-emerald-800 mt-2 bg-white/70 p-4 rounded-2xl border border-white/80 font-medium leading-relaxed">«Όλα είναι τέλεια! Το φως και η υγρασία μου είναι σε εξαιρετικά επίπεδα.»</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+            <div class="bg-white p-4 rounded-3xl border border-emerald-100/80 shadow-sm">
+                <div class="flex items-center gap-2 text-xs font-bold text-emerald-600 uppercase"><span>💧</span> Υγρασια</div>
+                <p id="val-soil" class="text-2xl font-extrabold text-gray-900 mt-1">-- %</p>
+            </div>
+            <div class="bg-white p-4 rounded-3xl border border-amber-100/80 shadow-sm">
+                <div class="flex items-center gap-2 text-xs font-bold text-amber-600 uppercase"><span>🌡️</span> Θερμοκρασια</div>
+                <p id="val-temp" class="text-2xl font-extrabold text-gray-900 mt-1">-- °C</p>
+            </div>
+            <div class="bg-white p-4 rounded-3xl border border-sky-100/80 shadow-sm">
+                <div class="flex items-center gap-2 text-xs font-bold text-sky-600 uppercase"><span>☁️</span> Αερας</div>
+                <p id="val-hum" class="text-2xl font-extrabold text-gray-900 mt-1">-- %</p>
+            </div>
+            <div class="bg-white p-4 rounded-3xl border border-yellow-100/80 shadow-sm">
+                <div class="flex items-center gap-2 text-xs font-bold text-yellow-600 uppercase"><span>☀️</span> Φωτισμος</div>
+                <p id="val-light" class="text-2xl font-extrabold text-gray-900 mt-1">-- %</p>
+            </div>
+        </div>
+        <div class="bg-white p-5 rounded-3xl border border-emerald-100/80 shadow-sm space-y-3">
+            <h3 class="text-sm font-bold text-gray-700 flex items-center gap-2">📊 Ιστορικό Υγρασίας Εδάφους</h3>
+            <div class="h-48"><canvas id="liveChart"></canvas></div>
+        </div>
+    </div>
+    <script>
+        const FIREBASE_BASE = "https://smart-pot-thesis-default-rtdb.europe-west1.firebasedatabase.app";
+
+        const ctx = document.getElementById('liveChart').getContext('2d');
+        const liveChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Υγρασία %', data: [], borderColor: '#10B981', borderWidth: 3, backgroundColor: 'rgba(16, 185, 129, 0.15)', fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: '#10B981' }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, grid: { color: '#F3F4F6' } }, x: { grid: { display: false } } } }
+        });
+
+        // 1. Φόρτωση τελευταίων 25 εγγραφών ιστορικού από Firebase
+        async function loadHistory() {
+            try {
+                const res = await fetch(`${FIREBASE_BASE}/plant_history.json?orderBy="$key"&limitToLast=25`);
+                const rawData = await res.json();
+                if (rawData) {
+                    const history = Object.values(rawData);
+                    liveChart.data.labels = history.map(item => item.timestamp);
+                    liveChart.data.datasets[0].data = history.map(item => item.soil_moisture);
+                    liveChart.update();
+                }
+            } catch (e) { console.error("Error loading history:", e); }
+        }
+
+        // 2. Αποστολή εντολής στο ESP32 να τρέξει άμεσα το Groq AI
+        async function triggerAI() {
+            const btn = document.getElementById('btn-trigger');
+            btn.innerText = '⏳ Σκέφτεται...';
+            btn.disabled = true;
+            document.getElementById('plant-avatar').innerText = '🤔';
+            document.getElementById('plant-mood-title').innerText = 'Η AI αναλύει...';
+
+            try {
+                await fetch(`${FIREBASE_BASE}/plant_status/manual_trigger.json`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(true)
+                });
+            } catch(e) { console.error(e); }
+
+            // Περιμένουμε ~5 δευτερόλεπτα να το πιάσει το ESP32 και να απαντήσει το Groq
+            setTimeout(() => {
+                btn.innerText = '🤖 Αξιολόγηση';
+                btn.disabled = false;
+                refreshUI();
+            }, 5500);
+        }
+
+        // 3. Ζωντανή ανάγνωση δεδομένων από Firebase
+        async function refreshUI() {
+            try {
+                const res = await fetch(`${FIREBASE_BASE}/plant_status.json`);
+                const data = await res.json();
+                if (!data || !data.sensor_data) return;
+
+                document.getElementById('last-update').innerText = 'Live • ' + (data.timestamp || '--:--:--');
+                document.getElementById('val-soil').innerText = data.sensor_data.soil_moisture + ' %';
+                document.getElementById('val-temp').innerText = data.sensor_data.temperature + ' °C';
+                document.getElementById('val-hum').innerText = data.sensor_data.humidity + ' %';
+                document.getElementById('val-light').innerText = data.sensor_data.light + ' %';
+
+                const soil = data.sensor_data.soil_moisture;
+                const avatar = document.getElementById('plant-avatar');
+                const moodTitle = document.getElementById('plant-mood-title');
+
+                if (data.ai_is_analyzing) { avatar.innerText = '🤔'; moodTitle.innerText = 'Η AI αναλύει...'; }
+                else if (soil <= 20) { avatar.innerText = '🥺'; moodTitle.innerText = 'Διψάω πολύ!'; }
+                else if (soil >= 85) { avatar.innerText = '😵'; moodTitle.innerText = 'Πολύ νερό!'; }
+                else { avatar.innerText = '😊'; moodTitle.innerText = 'Νιώθω υπέροχα!'; }
+
+                if (data.ai_response && data.ai_response.recommendation) {
+                    document.getElementById('ai-recommendation').innerText = '« ' + data.ai_response.recommendation + ' »';
+                }
+
+                // Ενημέρωση γραφήματος αν υπάρχει νέο timestamp
+                if (data.timestamp && data.timestamp !== "Δεν υπάρχουν δεδομένα") {
+                    const lastLabel = liveChart.data.labels[liveChart.data.labels.length - 1];
+                    if (lastLabel !== data.timestamp) {
+                        if (liveChart.data.labels.length >= 25) {
+                            liveChart.data.labels.shift();
+                            liveChart.data.datasets[0].data.shift();
+                        }
+                        liveChart.data.labels.push(data.timestamp);
+                        liveChart.data.datasets[0].data.push(soil);
+                        liveChart.update();
+                    }
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        loadHistory().then(() => {
+            refreshUI();
+            setInterval(refreshUI, 4000);
+        });
+    </script>
+</body>
+</html>
